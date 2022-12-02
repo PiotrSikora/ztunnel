@@ -17,6 +17,7 @@ use std::net::SocketAddr;
 use drain::Watch;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use socket2::SockRef;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 use tracing::{error, info, warn};
@@ -48,7 +49,7 @@ impl Inbound {
         let listener: TcpListener = TcpListener::bind(cfg.inbound_addr)
             .await
             .map_err(|e| Error::Bind(cfg.inbound_addr, e))?;
-        match crate::socket::set_transparent(&listener) {
+        match crate::socket::set_transparent(&SockRef::from(&listener)) {
             Err(_e) => info!("running without transparent mode"),
             _ => info!("running with transparent mode"),
         };
@@ -207,7 +208,7 @@ struct InboundCertProvider {
 #[async_trait::async_trait]
 impl crate::tls::CertProvider for InboundCertProvider {
     async fn fetch_cert(&mut self, fd: &TcpStream) -> Result<boring::ssl::SslAcceptor, TlsError> {
-        let orig = crate::socket::orig_dst_addr_or_default(fd);
+        let orig = crate::socket::orig_dst_addr_or_default(&SockRef::from(fd));
         let identity = {
             let remote_addr = super::to_canonical_ip(orig);
             self.workloads

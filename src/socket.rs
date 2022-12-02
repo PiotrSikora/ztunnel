@@ -18,28 +18,30 @@ use std::net::SocketAddr;
 use realm_io;
 use socket2::SockRef;
 use tokio::io;
-use tokio::net::TcpListener;
 use tracing::warn;
 
 #[cfg(target_os = "linux")]
-pub fn set_transparent(l: &TcpListener) -> io::Result<()> {
-    SockRef::from(l).set_ip_transparent(true)
+pub fn set_transparent(sock: &SockRef) -> io::Result<()> {
+    sock.set_ip_transparent(true)
 }
 
-pub fn orig_dst_addr_or_default(stream: &tokio::net::TcpStream) -> SocketAddr {
-    match orig_dst_addr(stream) {
+pub fn orig_dst_addr_or_default(sock: &SockRef) -> SocketAddr {
+    match orig_dst_addr(sock) {
         Ok(Some(addr)) => addr,
-        _ => stream.local_addr().expect("must get local address"),
+        _ => sock
+            .local_addr()
+            .expect("must get local address")
+            .as_socket()
+            .expect("must get local address"),
     }
 }
 
 #[cfg(target_os = "linux")]
-pub fn orig_dst_addr(stream: &tokio::net::TcpStream) -> io::Result<Option<SocketAddr>> {
-    let sock = SockRef::from(stream);
+pub fn orig_dst_addr(sock: &SockRef) -> io::Result<Option<SocketAddr>> {
     // Dual-stack IPv4/IPv6 sockets require us to check both options.
-    match linux::original_dst(&sock) {
+    match linux::original_dst(sock) {
         Ok(Some(addr)) => Ok(addr.as_socket()),
-        _ => match linux::original_dst_ipv6(&sock) {
+        _ => match linux::original_dst_ipv6(sock) {
             Ok(Some(addr)) => Ok(addr.as_socket()),
             Ok(None) => {
                 warn!("failed to read SO_ORIGINAL_DST");
@@ -54,7 +56,7 @@ pub fn orig_dst_addr(stream: &tokio::net::TcpStream) -> io::Result<Option<Socket
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn orig_dst_addr(_: &tokio::net::TcpStream) -> io::Result<Option<SocketAddr>> {
+pub fn orig_dst_addr(_: &SockRef) -> io::Result<Option<SocketAddr>> {
     Err(io::Error::new(
         io::ErrorKind::Other,
         "SO_ORIGINAL_DST not supported on this operating system",
@@ -62,7 +64,7 @@ pub fn orig_dst_addr(_: &tokio::net::TcpStream) -> io::Result<Option<SocketAddr>
 }
 
 #[cfg(not(target_os = "linux"))]
-pub fn set_transparent(_: &TcpListener) -> io::Result<()> {
+pub fn set_transparent(_: &SockRef) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Other,
         "IP_TRANSPARENT not supported on this operating system",

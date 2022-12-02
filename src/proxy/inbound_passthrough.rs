@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use socket2::SockRef;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{error, info, warn};
 
@@ -33,7 +34,7 @@ impl InboundPassthrough {
         let tcp_listener: TcpListener = TcpListener::bind(self.cfg.inbound_plaintext_addr)
             .await
             .expect("failed to bind");
-        match socket::set_transparent(&tcp_listener) {
+        match socket::set_transparent(&SockRef::from(&tcp_listener)) {
             Err(_e) => info!("running without transparent mode"),
             _ => info!("running with transparent mode"),
         };
@@ -47,10 +48,10 @@ impl InboundPassthrough {
             // Asynchronously wait for an inbound socket.
             let socket = tcp_listener.accept().await;
             match socket {
-                Ok((mut stream, remote)) => {
+                Ok((stream, remote)) => {
                     info!("accepted inbound plaintext connection from {}", remote);
                     tokio::spawn(async move {
-                        if let Err(e) = Self::proxy_inbound_plaintext(&mut stream).await {
+                        if let Err(e) = Self::proxy_inbound_plaintext(stream).await {
                             warn!("plaintext proxying failed {}", e)
                         }
                     });
@@ -60,10 +61,10 @@ impl InboundPassthrough {
         }
     }
 
-    async fn proxy_inbound_plaintext(inbound: &mut TcpStream) -> Result<(), Error> {
-        let orig = socket::orig_dst_addr_or_default(inbound);
+    async fn proxy_inbound_plaintext(mut inbound: TcpStream) -> Result<(), Error> {
+        let orig = socket::orig_dst_addr_or_default(&SockRef::from(&inbound));
         let mut outbound = TcpStream::connect(orig).await?;
-        relay(inbound, &mut outbound).await?;
+        relay(&mut inbound, &mut outbound).await?;
         info!("proxy inbound plaintext complete");
         Ok(())
     }

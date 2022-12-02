@@ -18,6 +18,7 @@ use std::time::Instant;
 
 use boring::ssl::ConnectConfiguration;
 use drain::Watch;
+use socket2::SockRef;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{debug, error, info, warn};
 
@@ -52,7 +53,7 @@ impl Outbound {
         let listener: TcpListener = TcpListener::bind(cfg.outbound_addr)
             .await
             .map_err(|e| Error::Bind(cfg.outbound_addr, e))?;
-        match socket::set_transparent(&listener) {
+        match socket::set_transparent(&SockRef::from(&listener)) {
             Err(_e) => info!("running without transparent mode"),
             _ => info!("running with transparent mode"),
         };
@@ -133,7 +134,7 @@ impl OutboundConnection {
     async fn proxy(&mut self, stream: TcpStream) -> Result<(), Error> {
         let peer = stream.peer_addr().expect("must receive peer addr");
         let remote_addr = super::to_canonical_ip(peer);
-        let orig = socket::orig_dst_addr_or_default(&stream);
+        let orig = socket::orig_dst_addr_or_default(&SockRef::from(&stream));
         self.proxy_to(stream, remote_addr, orig).await
     }
 
